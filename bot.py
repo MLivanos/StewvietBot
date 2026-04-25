@@ -1,34 +1,38 @@
-import os
-import sys
+from threading import Thread
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+CST  = ZoneInfo("America/Chicago")
 import time
-import fcntl
 import asyncio
 import aiohttp
 import discord
-from threading import Thread
-from datetime import datetime, date
-from zoneinfo import ZoneInfo
 from discord.ext import tasks
 
-# ======================
-# PROCESS LOCK
-# ======================
-# Prevents two instances of the bot from running at the same time
-lock_file = open('.bot.lock', 'w')
-try:
-    fcntl.lockf(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-except IOError:
-    print("Another instance of the bot is already running. Exiting.")
-    sys.exit(1)
-
-# Import shared state explicitly so we can safely modify it later
+from shared import (
+    BOT_STATUS,
+    DAILY_MESSAGE_TEXT,
+    DAILY_MESSAGE_HOUR,
+    FORCE_DAILY_MESSAGE_ON_START,
+)
+from shared import MANUAL_MESSAGE
 import shared
 
+@tasks.loop(seconds=5)
+async def manual_message_task():
+    if shared.MANUAL_MESSAGE:
+        guild = client.get_guild(DAILY_MESSAGE_GUILD_ID)
+        if guild:
+            channel = guild.get_channel(DAILY_MESSAGE_CHANNEL_ID)
+            if channel:
+                await channel.send(shared.MANUAL_MESSAGE)
+
+        shared.MANUAL_MESSAGE = None
 # Discord targets
 DAILY_MESSAGE_GUILD_ID = 1135060782812516373
 DAILY_MESSAGE_CHANNEL_ID = 1135060785270370376
 
 # State
+last_daily_message_date = None
 last_daily_log_hour = None
 
 # Timezone
@@ -82,26 +86,6 @@ SERVERS = {
 
 CHECK_INTERVAL = 60  # seconds
 live_status = {}
-
-# ======================
-# HELPERS
-# ======================
-
-def has_sent_today():
-    """Reads the persistence file to check if a message went out today."""
-    today = str(date.today())
-    file_path = "last_daily_sent.txt"
-    if not os.path.exists(file_path):
-        return False
-    with open(file_path, "r") as f:
-        return f.read().strip() == today
-
-def mark_as_sent():
-    """Writes today's date to the persistence file."""
-    today = str(date.today())
-    file_path = "last_daily_sent.txt"
-    with open(file_path, "w") as f:
-        f.write(today)
 
 # ======================
 # TWITCH FUNCTIONS
@@ -191,16 +175,16 @@ async def check_streams():
 
 @client.event
 async def on_ready():
-    shared.BOT_STATUS["connected"] = True
-    shared.BOT_STATUS["bot_name"] = str(client.user)
+    BOT_STATUS["connected"] = True
+    BOT_STATUS["bot_name"] = str(client.user)
 
     guild = client.get_guild(DAILY_MESSAGE_GUILD_ID)
     if guild:
-        shared.BOT_STATUS["guild_name"] = guild.name
+        BOT_STATUS["guild_name"] = guild.name
 
         channel = guild.get_channel(DAILY_MESSAGE_CHANNEL_ID)
         if channel:
-            shared.BOT_STATUS["daily_channel_name"] = channel.name
+            BOT_STATUS["daily_channel_name"] = channel.name
 
     print(f"Logged in as {client.user}")
 
@@ -217,10 +201,17 @@ async def on_ready():
 # ======================
 # START BOT
 # ======================
-
 @tasks.loop(minutes=1)
 async def daily_message_task():
-    global last_daily_log_hour
+    from shared import (
+        DAILY_MESSAGE_HOUR,
+        DAILY_MESSAGE_TEXT,
+        FORCE_DAILY_MESSAGE_ON_START,
+        BOT_STATUS,
+    )
+
+    global last_daily_message_date, last_daily_log_hour
+
     now = datetime.now(CST)
 
     # Alive log every 3 hours
@@ -228,21 +219,15 @@ async def daily_message_task():
         print(f"[DailyTask] Alive check at {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
         last_daily_log_hour = now.hour
 
-    is_forced = shared.FORCE_DAILY_MESSAGE_ON_START
-
-    # 1. Decide if we should run right now
-    if not is_forced:
-        # Not forced, so check if it's 8:00 AM
-        if now.hour != shared.DAILY_MESSAGE_HOUR or now.minute != 0:
+    # Only run at scheduled time unless forced
+    if not FORCE_DAILY_MESSAGE_ON_START:
+        if now.hour != DAILY_MESSAGE_HOUR or now.minute != 0:
             return
-        
-        # It IS 8:00 AM, but did we already send it today?
-        if has_sent_today():
-            return
-    else:
-        print("[DailyTask] Daily message forced sent")
 
-    # 2. Attempt to gather Discord objects
+    # Prevent duplicate sends
+    if last_daily_message_date == now.date():
+        return
+
     guild = client.get_guild(DAILY_MESSAGE_GUILD_ID)
     if not guild:
         print("[DailyTask] Guild not found")
@@ -253,20 +238,19 @@ async def daily_message_task():
         print("[DailyTask] Channel not found")
         return
 
-    # 3. Send the message
-    await channel.send(shared.DAILY_MESSAGE_TEXT)
+    await channel.send(DAILY_MESSAGE_TEXT)
 
-    # 4. Mark it as done and clear flags
-    mark_as_sent()
-    shared.FORCE_DAILY_MESSAGE_ON_START = False
-    shared.BOT_STATUS["last_daily_message"] = now.strftime("%Y-%m-%d %H:%M:%S %Z")
+    last_daily_message_date = now.date()
+    FORCE_DAILY_MESSAGE_ON_START  = False
+    BOT_STATUS["last_daily_message"] = now.strftime("%Y-%m-%d %H:%M:%S %Z")
 
     print("[DailyTask] Daily message sent")
-
 
 def run_web():
     from web import app
     app.run(host="0.0.0.0", port=5000)
+@client.event
+async def on_ready():
+    manual_message_task.start()
 
-if __name__ == "__main__":
-    client.run(DISCORD_TOKEN)
+client.run(DISCORD_TOKEN)

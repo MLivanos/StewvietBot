@@ -13,7 +13,10 @@ def home():
 <form action="/send_daily_now" method="post">
     <button type="submit">Send Daily Message On Start</button>
 </form>
-
+<form action="/send_message" method="post">
+    <input type="text" name="message" placeholder="Type message here">
+    <button type="submit">Send Message</button>
+</form>
         <li><b>Connected:</b> {BOT_STATUS['connected']}</li>
         <li><b>Bot Name:</b> {BOT_STATUS['bot_name']}</li>
         <li><b>Server:</b> {BOT_STATUS['guild_name']}</li>
@@ -22,6 +25,7 @@ def home():
         <li><b>Last Daily Message:</b> {BOT_STATUS['last_daily_message']}</li>
     </ul>
     """
+@app.route("/send_daily_now", methods=["POST"])
 @app.route("/send_daily_now", methods=["POST"])
 def send_daily_now():
     shared.FORCE_DAILY_MESSAGE_ON_START = True
