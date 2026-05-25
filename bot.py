@@ -7,6 +7,7 @@ import asyncio
 import aiohttp
 import discord
 from discord.ext import tasks
+from random import choice
 
 from shared import (
     BOT_STATUS,
@@ -238,7 +239,9 @@ async def daily_message_task():
         print("[DailyTask] Channel not found")
         return
 
-    await channel.send(DAILY_MESSAGE_TEXT)
+    # 3. Send the message
+    message_text = choice(shared.DAILY_MESSAGES)
+    await channel.send(message_text)
 
     last_daily_message_date = now.date()
     FORCE_DAILY_MESSAGE_ON_START  = False

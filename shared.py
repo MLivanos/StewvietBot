@@ -15,7 +15,10 @@ BOT_STATUS = {
 # ======================
 # Daily Message Settings
 # ======================
-DAILY_MESSAGE_TEXT = "Stewviets, awaken! It is a glorius day in the Stewviet Union to worship our Queen, Cookie."
+DAILY_MESSAGES = ["Stewviet message 1",
+    "Stewviet message 2",
+    "Stewviet message 3",
+    "Stewviet message 4..."]
 
 
 DAILY_MESSAGE_HOUR = 8  # 8 AM CST
